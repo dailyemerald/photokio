@@ -1,0 +1,49 @@
+<div class="print-wrapper">
+	<button class="print-button btn btn-primary">Print</button>
+</div>
+
+<div class="debug-info"></div>
+
+<ul class="selectable">
+<% @photos.each do |photo| %>
+	<li>
+		<img data-file="<%= photo %>" src="/file/<%= photo.split("/").last %>">
+	</li>
+<% end %>
+</ul>
+
+
+<style>
+.selectable .ui-selecting { background: #FECA40; }
+.selectable .ui-selected { background: #F39814; color: white; }
+.selectable { list-style-type: none; margin: 0; padding: 0; width: 1090px; }
+.selectable li { margin: 3px; padding: 1px; float: left; width: 200px; height: 200px; font-size: 4em; text-align: center; }
+</style>
+<script>
+$(function() {
+	$( ".selectable" ).selectable({
+		selected: function(event, ui) {
+
+		}
+	});
+	$(".print-button").click(function() {		
+			var files = $('.ui-selected').map(function(index, photo) {
+				var img = $(photo).find('img')[0]
+				return $(img).attr('data-file')
+			}).get();
+
+			$('.debug-info').html("<h3>Building...</h3>");
+
+			$.post('/build', {
+				files: files
+			}).success(function(url) {
+				$('.debug-info').html(url);
+				window.location = url;
+			}).error(function(message) {
+				console.log(message);
+				alert(message.responseText);
+			});
+		
+	});	
+});
+</script>
