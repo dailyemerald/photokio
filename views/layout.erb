@@ -18,5 +18,25 @@
 	<%= yield %>
 </div>
 
+<div class="sidebar">
+	<ul class="list-group">
+	</ul>
+</div>
+<script>
+	$(document).ready(function() {
+		$sidebar = $('.sidebar ul');
+		var show = function(text) {
+			$sidebar.prepend('<li class="list-group-item">'+text+'</li>')
+		}
+		var ws = new WebSocket('ws://' + window.location.host + '/ws');
+		ws.onopen = function() {
+			show('Websocket opened!'); 
+		};
+		ws.onmessage = function(m) { 
+		 	show(m.data); 
+		};
+	});
+</script>
+
 </body>
 </html>

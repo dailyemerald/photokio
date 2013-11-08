@@ -40,8 +40,7 @@ $(function() {
 				$('.debug-info').html(url);
 				window.location = url;
 			}).error(function(message) {
-				console.log(message);
-				alert(message.responseText);
+				container.html(message.responseText);
 			});
 		
 	});	

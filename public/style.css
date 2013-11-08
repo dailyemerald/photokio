@@ -4,8 +4,12 @@ body {
 }
 
 .container {
-	width: 1090px;
-	margin: 0 auto;
+	width: 80%;
+	float: left;
+}
+.sidebar {
+	width: 20%;
+	float: left;
 }
 
 .photo {

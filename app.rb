@@ -1,4 +1,5 @@
 require 'sinatra/base'
+require 'sinatra-websocket'
 require 'json'
 require 'mini_magick'
 require 'celluloid/autostart'
@@ -11,9 +12,9 @@ class ResizeJob
 		puts "about to open #{file}.."
 		image = MiniMagick::Image.open(file)		
 		image.auto_orient
-		image.resize('540x540^')
+		image.resize('500x500^')
 		image.gravity('center')
-		image.crop('540x540!+0+0')
+		image.crop('500x500!+0+0')
 		output_name = "#{Dir.pwd}/tmp/600/#{file.split('/').last}.jpg" # oh my this is horrible
 		puts "...STARTING to save #{file} as #{output_name}"				
 		image.write(output_name)
@@ -25,8 +26,34 @@ end
 class App < Sinatra::Base
 
 	configure do
-		set :server, :puma
+		set :server, 'thin'
+		set :sockets, []
 		set :resize_pool, ResizeJob.pool(size: 6) # 3 would probably be fine.
+	end
+
+	get '/ws' do
+		if !request.websocket?
+			redirect '/'
+		else
+			request.websocket do |ws|
+				ws.onopen do
+					ws.send("I'm from the server. This is a good sign.")
+					settings.sockets << ws
+				end
+				ws.onclose do
+					warn("wetbsocket closed")
+					settings.sockets.delete(ws)
+				end
+			end
+		end
+	end
+
+	def log(msg)
+		EM.next_tick { 
+			settings.sockets.each{ |s| 
+				s.send(msg) 
+			} 
+		}
 	end
 
 	get '/' do
@@ -69,13 +96,21 @@ class App < Sinatra::Base
 		end	
 	end
 
+	get '/status' do
+		erb :status
+	end
+
 	def make_strip(files)
 		puts files
+		start_time = Time.now.utc.to_f
 		image_futures = files.map{|file| 
 			settings.resize_pool.future.resize(file)
 		}
-		puts "everyone's in the pool..."
-		return generate_composite(image_futures.map{|future| future.value})
+		log("Resizer futures created...")		
+		images = image_futures.map{|future| future.value}
+		log("Resizer pool done in #{Time.now.utc.to_f-start_time}")
+		log("images: #{images.join(', ')}")
+		return generate_composite(images)
 	end
 
 	def generate_composite(files)
@@ -83,13 +118,18 @@ class App < Sinatra::Base
 
 		command = ["convert -size 1200x1800 xc:white"]		
 		files.each_with_index do |file, index|
-			command << "\"#{file}\" -geometry  +30+#{(index+1)*30 + index*540} -composite"
-			command << "\"#{file}\" -geometry +630+#{(index+1)*30 + index*540} -composite"
+			puts index
+			command << "\"#{file}\" -geometry  +57+#{(index+1)*50 + index*500} -composite"
+			command << "\"#{file}\" -geometry +645+#{(index+1)*50 + index*500} -composite"
 		end
+
+		command << "\"./stamp.png\" -geometry  +13+1670 -composite"
+		command << "\"./stamp.png\" -geometry +613+1670 -composite"
+
 		command << "\"#{output_file}\""
 
 		command_string = command.join(" ")
-		puts "about to run command: #{command_string}"
+		log("about to run command: #{command_string}")
 		puts `#{command_string}`
 		output_file
 		
