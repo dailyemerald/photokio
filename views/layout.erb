@@ -28,12 +28,31 @@
 		var show = function(text) {
 			$sidebar.prepend('<li class="list-group-item">'+text+'</li>')
 		}
+		var prepend_photo = function(file) {
+			var html = '<li><img data-file="' + file + '" src="/file/' + file + '"></li>';
+			$('.container .selectable').prepend(html);
+		}
+
 		var ws = new WebSocket('ws://' + window.location.host + '/ws');
-		ws.onopen = function() {
+		/*ws.onopen = function() {
 			show('Websocket opened!'); 
-		};
+		}; //*/
 		ws.onmessage = function(m) { 
-		 	show(m.data); 
+			try {
+				var data = JSON.parse(m.data);
+				console.log("got message:", data);
+				if (data.type == 'log') {
+					show(data.data);		
+				} else if (data.type == 'new-photo') {
+					prepend_photo(data.data);
+				} else {
+					alert('unknown message '+data.type)
+				}
+			} catch (e) {
+				console.log(e);
+				
+			}
+		 	
 		};
 	});
 </script>

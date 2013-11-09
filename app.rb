@@ -9,35 +9,49 @@ Dotenv.load
 
 class ResizeJob
 	include Celluloid
+
+	def publish(obj)
+		@redis.publish('log', obj.to_json)
+	end
+
 	def resize(file)
-		redis = Redis.new
+		@redis = Redis.new
 
 		after(5) { 
-			redis.publish('log', "SLOW RESIZE: #{file}, terminating...")
+			publish({type: 'log', data: "SLOW RESIZE: #{file}, terminating..."})
 			terminate 
 		}
 
-		redis.publish('log', "about to open #{file}..")
+		publish({type: 'log', data: "about to open #{file}.."})
+
 		image = MiniMagick::Image.open(ENV['SOURCE_DIR']+file)		
 		image.auto_orient
 		image.resize('500x500^')
 		image.gravity('center')
 		image.crop('500x500!+0+0')
 		output_name = "#{ENV['RESIZE_DIR']}#{file}" # oh my this is horrible
-		redis.publish('log', "...STARTING to save #{file} as #{output_name}")
+		publish({type: 'log', data: "...STARTING to save #{file} as #{output_name}"})
 		image.write(output_name)
-		redis.publish('log', "...DONE saving #{file} as #{output_name}")
+		publish({type: 'log', data: "...DONE saving #{file} as #{output_name}"})
+
+		file = output_name.split("/").last
+		publish({type: 'new-photo', data: file}) # FEELS FLIMSY
+		
 		return output_name
 	end
 end
 
 class FileJob
 	include Celluloid
+	def publish(obj)
+		@redis.publish('log', obj.to_json)
+	end
+
 	def initialize	
 		Dir.mkdir(ENV['RESIZE_DIR']) rescue nil
 		Dir.mkdir(ENV['OUTPUT_DIR']) rescue nil
 
-		redis = Redis.new
+		@redis = Redis.new
 		@resize_pool = ResizeJob.pool(size: 10)
 
 		every(1) do		
@@ -49,10 +63,10 @@ class FileJob
 				if File.exists?("#{ENV['RESIZE_DIR']}#{file}")
 					# cool, nothing to do. already have a square, resized frame for this.
 				else
-					if redis.get(file).nil?
-						redis.setex(file, (3+2*rand()).to_i, 'hold') # it's like a lock
+					if @redis.get(file).nil?
+						@redis.setex(file, (3+2*rand()).to_i, 'hold') # it's like a lock
 						future = @resize_pool.future.resize(file)
-						redis.publish('log', "added #{file} to resize_pool")
+						publish({type: 'log', data: "added #{file} to resize_pool"})
 					else
 						# someone is currently resizing this. chill.
 					end
@@ -90,7 +104,7 @@ class App < Sinatra::Base
 		else
 			request.websocket do |ws|
 				ws.onopen do
-					ws.send("I'm from the server. This is a good sign.")
+					#ws.send("I'm from the server. This is a good sign.")
 					settings.sockets << ws
 				end
 				ws.onclose do
@@ -102,7 +116,7 @@ class App < Sinatra::Base
 	end
 
 	def log(msg)		
-		settings.redis.publish('log', msg)
+		settings.redis.publish('log', {type: 'log', data: msg}.to_json)
 	end
 
 	get '/' do

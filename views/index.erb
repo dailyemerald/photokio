@@ -6,9 +6,7 @@
 
 <ul class="selectable">
 <% @photos.each do |photo| %>
-	<li>
-		<img data-file="<%= photo %>" src="/file/<%= photo.split("/").last %>">
-	</li>
+	<li><img data-file="<%= photo %>" src="/file/<%= photo %>"></li>
 <% end %>
 </ul>
 
@@ -22,27 +20,24 @@
 <script>
 $(function() {
 	$( ".selectable" ).selectable({
-		selected: function(event, ui) {
-
-		}
+		selected: function(event, ui) { }
 	});
 	$(".print-button").click(function() {		
-			var files = $('.ui-selected').map(function(index, photo) {
-				var img = $(photo).find('img')[0]
-				return $(img).attr('data-file')
-			}).get();
-
-			$('.debug-info').html("<h3>Building...</h3>");
-
-			$.post('/build', {
-				files: files
-			}).success(function(url) {
-				$('.debug-info').html(url);
-				window.location = url;
-			}).error(function(message) {
-				container.html(message.responseText);
-			});
+		$('.debug-info').html("<h3>Building...</h3>");
 		
+		var files = $('.ui-selected').map(function(index, photo) {
+			var img = $(photo).find('img')[0]
+			return $(img).attr('data-file')
+		}).get();
+
+		$.post('/build', {
+			files: files
+		}).success(function(url) {
+			$('.debug-info').html(url);
+			window.location = url;
+		}).error(function(message) {
+			container.html(message.responseText);
+		});		
 	});	
 });
 </script>
