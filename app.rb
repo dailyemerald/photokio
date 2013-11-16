@@ -7,15 +7,17 @@ require 'celluloid/autostart'
 require 'dotenv'
 Dotenv.load
 
+$redis = Redis.new
+
 class ResizeJob
 	include Celluloid
 
 	def publish(obj)
-		@redis.publish('log', obj.to_json)
+		$redis.publish('log', obj.to_json)
 	end
 
 	def resize(file)
-		@redis = Redis.new
+		image_size = 510
 
 		after(5) { 
 			publish({type: 'log', data: "SLOW RESIZE: #{file}, terminating..."})
@@ -26,13 +28,17 @@ class ResizeJob
 
 		image = MiniMagick::Image.open(ENV['SOURCE_DIR']+file)		
 		image.auto_orient
-		image.resize('500x500^')
-		image.gravity('center')
-		image.crop('500x500!+0+0')
+		image.resize("#{image_size}x#{image_size}^")		
+
+		puts "img width: #{image[:width]}"
+		x_offset = (1.0*image[:width] - image_size)/2.0
+		x_offset = x_offset.to_i
+		image.crop("#{image_size}x#{image_size}+#{x_offset}+0")
+		
 		output_name = "#{ENV['RESIZE_DIR']}#{file}" # oh my this is horrible
-		publish({type: 'log', data: "...STARTING to save #{file} as #{output_name}"})
+		#publish({type: 'log', data: "...STARTING to save #{file} as #{output_name}"})
 		image.write(output_name)
-		publish({type: 'log', data: "...DONE saving #{file} as #{output_name}"})
+		publish({type: 'log', data: "DONE resizing #{file}"})
 
 		file = output_name.split("/").last
 		publish({type: 'new-photo', data: file}) # FEELS FLIMSY
@@ -43,18 +49,24 @@ end
 
 class FileJob
 	include Celluloid
+
 	def publish(obj)
-		@redis.publish('log', obj.to_json)
+		$redis.publish('log', obj.to_json)
 	end
 
 	def initialize	
-		Dir.mkdir(ENV['RESIZE_DIR']) rescue nil
-		Dir.mkdir(ENV['OUTPUT_DIR']) rescue nil
-
-		@redis = Redis.new
-		@resize_pool = ResizeJob.pool(size: 10)
+		puts `mkdir -p "#{ENV['SOURCE_DIR']}"` # put this somewhere else? or not a shell? TODO!
+		puts `mkdir -p "#{ENV['RESIZE_DIR']}"` 
+		puts `mkdir -p "#{ENV['OUTPUT_DIR']}"`
 
 		every(1) do		
+
+			debug_pool = {      
+				size: Celluloid::Actor[:resize_pool].size,
+				busy_size: Celluloid::Actor[:resize_pool].busy_size,
+				idle_size: Celluloid::Actor[:resize_pool].idle_size }.to_json
+			puts debug_pool
+
 			files = Dir.glob(ENV['SOURCE_DIR']+ENV['SOURCE_GLOB']).map{|file|
 				file.split('/').last
 			}.sort.reverse
@@ -62,13 +74,15 @@ class FileJob
 			files.each do |file|
 				if File.exists?("#{ENV['RESIZE_DIR']}#{file}")
 					# cool, nothing to do. already have a square, resized frame for this.
+					#puts "#{file} already ready"
 				else
-					if @redis.get(file).nil?
-						@redis.setex(file, (3+2*rand()).to_i, 'hold') # it's like a lock
-						future = @resize_pool.future.resize(file)
+					if $redis.get(file).nil?
+						$redis.setex(file, 5, 'hold') # it's like a lock. 5 seconds.
+						Celluloid::Actor[:resize_pool].async.resize(file)
 						publish({type: 'log', data: "added #{file} to resize_pool"})
 					else
 						# someone is currently resizing this. chill.
+						puts "#{file} is locked."
 					end
 				end
 			end			
@@ -81,9 +95,9 @@ class App < Sinatra::Base
 	configure do
 		set :server, 'thin'
 		set :sockets, []
-		#set :resize_pool, ResizeJob.pool(size: 10)
+		set :resize_pool, Celluloid::Actor[:resize_pool] = ResizeJob.pool(size: 10)
 		set :file_watcher, FileJob.new
-		set :redis, Redis.new
+
 		set :redis_listener, Thread.new {			
 			redis = Redis.new
 			redis.subscribe('log') { |on|				
@@ -108,7 +122,7 @@ class App < Sinatra::Base
 					settings.sockets << ws
 				end
 				ws.onclose do
-					warn("wetbsocket closed")
+					#warn("wetbsocket closed")
 					settings.sockets.delete(ws)
 				end
 			end
@@ -116,7 +130,7 @@ class App < Sinatra::Base
 	end
 
 	def log(msg)		
-		settings.redis.publish('log', {type: 'log', data: msg}.to_json)
+		$redis.publish('log', {type: 'log', data: msg}.to_json)
 	end
 
 	get '/' do
@@ -140,21 +154,21 @@ class App < Sinatra::Base
 	end
 
 	get '/prints' do
-		@files = Dir.glob("#{ENV['RESIZE_DIR']}*").reverse.map{|file| file.split('/').last }
+		@files = Dir.glob("#{ENV['OUTPUT_DIR']}*").reverse.map{|file| file.split('/').last }
 		erb :output_list
 	end
 
 	post '/print/:filename' do
-		`lp -d Dai_Nippon_Printing_DS_RX1 -o Cutter=2Inch -o Finish=Matte -o PageSize=300dnp6x4 \"#{ENV['OUTPUT_DIR']}#{params['filename']}\"`
+		puts `lp -d Dai_Nippon_Printing_DS_RX1 -o Cutter=2Inch -o Finish=Matte -o PageSize=300dnp6x4 \"#{ENV['OUTPUT_DIR']}#{params['filename']}\"`
 		erb :printing
 	end
 
 	post '/build' do
-		if !params['files'].nil? and params['files'].count != 3
+		if params['files'].nil? or params['files'].count != 3
 			status 500
 			"Must be exactly 3 files!"
 		else
-			output_filename = make_strip(params['files'])
+			output_filename = make_strip(params['files'].reverse)
 			return "/output/#{output_filename.split("/").last}"
 		end	
 	end
@@ -167,14 +181,13 @@ class App < Sinatra::Base
 		output_file = "#{ENV['OUTPUT_DIR']}#{Time.now.utc.to_i}.jpg"
 
 		command = ["convert -size 1200x1800 xc:white"]		
-		files.each_with_index do |file, index|
-			puts index
-			command << "\"#{ENV['RESIZE_DIR']+file}\" -geometry  +57+#{(index+1)*50 + index*500} -composite"
-			command << "\"#{ENV['RESIZE_DIR']+file}\" -geometry +645+#{(index+1)*50 + index*500} -composite"
+		files.each_with_index do |file, index|			
+			command << "\"#{ENV['RESIZE_DIR']+file}\" -geometry  +52+#{(index+1)*50 + index*500} -composite"
+			command << "\"#{ENV['RESIZE_DIR']+file}\" -geometry +640+#{(index+1)*50 + index*500} -composite"
 		end
 
-		command << "\"./stamp.png\" -geometry  +13+1670 -composite"
-		command << "\"./stamp.png\" -geometry +613+1670 -composite"
+		command << "\"./stamp.png\" -geometry   +8+1670 -composite"
+		command << "\"./stamp.png\" -geometry +608+1670 -composite"
 
 		command << "\"#{output_file}\""
 

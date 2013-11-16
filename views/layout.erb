@@ -10,8 +10,11 @@
 <body>
 
 <div class="header">
-	<a href='/'>home</a>
-	<a href='/prints'>previous prints</a>
+	<div class="header-inner">
+		<a href='/'>home</a> &bull;
+		<a href='/prints'>previous prints</a> &bull;
+		<a href='/status'>status</a>
+	</div>
 </div>
 
 <div class="container">
@@ -22,6 +25,7 @@
 	<ul class="list-group">
 	</ul>
 </div>
+
 <script>
 	$(document).ready(function() {
 		$sidebar = $('.sidebar ul');

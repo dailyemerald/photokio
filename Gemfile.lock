@@ -5,6 +5,7 @@ GEM
     celluloid (0.15.1)
       timers (~> 1.1.0)
     daemons (1.1.9)
+    dotenv (0.9.0)
     em-websocket (0.3.8)
       addressable (>= 2.1.1)
       eventmachine (>= 0.12.9)
@@ -36,6 +37,7 @@ PLATFORMS
 
 DEPENDENCIES
   celluloid
+  dotenv
   mini_magick
   redis
   sinatra

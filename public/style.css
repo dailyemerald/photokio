@@ -3,7 +3,19 @@ body {
 	padding: 4px;
 }
 
+.header {
+	height: 35px;
+	border-bottom:1px solid #CCC;
+}
+.header-inner {
+	width: 500px;
+	margin: 0 auto;
+	font-weight: 900;
+	font-size: 20px;
+}
+
 .container {
+	margin-top: 20px;
 	width: 80%;
 	float: left;
 }
@@ -24,4 +36,5 @@ body {
 img {
 	max-width: 100%;
 	max-height: 100%;
+	padding: 3px;
 }
